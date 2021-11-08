@@ -80,30 +80,97 @@ def write_result(output_list, result_df):
     return result_df
 
 
-def make_df(num_modality, modality):
-    if num_modality == 3:
-        result_df = pd.DataFrame(
-            {'epoch': [], 'train_accuracy': [], 'val_accuracy': [],
-             'train_classification_loss': [], 'train_mri_loss': [], 'train_tau_loss': [],
-             'train_amyloid_loss': [],
-             'val_classification_loss': [], 'val_mri_loss': [], 'val_tau_loss': [], 'val_amyloid_loss': []})
+def dice(true_mask, pred_mask, non_seg_score=1.0):
+    """
+        Computes the Dice coefficient.
+        Args:
+            true_mask : Array of arbitrary shape.
+            pred_mask : Array with the same shape than true_mask.
 
-    elif num_modality == 2:
-        if 'mri' and 'tau' in modality:
-            result_df = pd.DataFrame(
-                {'epoch': [], 'train_accuracy': [], 'val_accuracy': [],
-                 'train_classification_loss': [], 'train_mri_loss': [], 'train_tau_loss': [],
-                 'val_classification_loss': [], 'val_mri_loss': [], 'val_tau_loss': []})
-        elif 'mri' and 'amyloid' in modality:
-            result_df = pd.DataFrame(
-                {'epoch': [], 'train_accuracy': [], 'val_accuracy': [],
-                 'train_classification_loss': [], 'train_mri_loss': [], 'train_amyloid_loss': [],
-                 'val_classification_loss': [], 'val_mri_loss': [], 'val_amyloid_loss': []})
-    else:
-        result_df = pd.DataFrame(
-            {'epoch': [], 'train_accuracy': [], 'val_accuracy': [],
-             'train_classification_loss': [], 'train_mri_loss': [], 'val_classification_loss': [],
-             'val_mri_loss': []})
-    return result_df
+        Returns:
+            A scalar representing the Dice coefficient between the two segmentations.
+
+    """
+    assert true_mask.shape == pred_mask.shape
+
+    true_mask = np.asarray(true_mask).astype(np.bool)
+    pred_mask = np.asarray(pred_mask).astype(np.bool)
+
+    # If both segmentations are all zero, the dice will be 1. (Developer decision)
+    im_sum = true_mask.sum() + pred_mask.sum()
+    if im_sum == 0:
+        return non_seg_score
+
+    # Compute Dice coefficient
+    intersection = np.logical_and(true_mask, pred_mask)
+    return 2. * intersection.sum() / im_sum
+
+class MeanIoU(object):
+    """Mean intersection over union (mIoU) metric.
+    Intersection over union (IoU) is a common evaluation metric for semantic
+    segmentation. The predictions are first accumulated in a confusion matrix
+    and the IoU is computed from it as follows:
+        IoU = true_positive / (true_positive + false_positive + false_negative).
+    The mean IoU is the mean of IoU between all classes.
+    Keyword arguments:
+        num_classes (int): number of classes in the classification problem.
+    """
+
+    def __init__(self, num_classes):
+        super().__init__()
+
+        self.num_classes = num_classes
+
+    def mean_iou(self, y_true, y_pred):
+        """The metric function to be passed to the model.
+        Args:
+            y_true (tensor): True labels.
+            y_pred (tensor): Predictions of the same shape as y_true.
+        Returns:
+            The mean intersection over union as a tensor.
+        """
+        # Wraps _mean_iou function and uses it as a TensorFlow op.
+        # Takes numpy arrays as its arguments and returns numpy arrays as
+        # its outputs.
+        return tf.py_func(self._mean_iou, [y_true, y_pred], tf.float32)
+
+    def _mean_iou(self, y_true, y_pred):
+        """Computes the mean intesection over union using numpy.
+        Args:
+            y_true (tensor): True labels.
+            y_pred (tensor): Predictions of the same shape as y_true.
+        Returns:
+            The mean intersection over union (np.float32).
+        """
+        # Compute the confusion matrix to get the number of true positives,
+        # false positives, and false negatives
+        # Convert predictions and target from categorical to integer format
+        target = np.argmax(y_true, axis=-1).ravel()
+        predicted = np.argmax(y_pred, axis=-1).ravel()
+
+        # Trick for bincounting 2 arrays together
+        x = predicted + self.num_classes * target
+        bincount_2d = np.bincount(
+            x.astype(np.int32), minlength=self.num_classes**2
+        )
+        assert bincount_2d.size == self.num_classes**2
+        conf = bincount_2d.reshape(
+            (self.num_classes, self.num_classes)
+        )
+
+        # Compute the IoU and mean IoU from the confusion matrix
+        true_positive = np.diag(conf)
+        false_positive = np.sum(conf, 0) - true_positive
+        false_negative = np.sum(conf, 1) - true_positive
+
+        # Just in case we get a division by 0, ignore/hide the error and
+        # set the value to 1 since we predicted 0 pixels for that class and
+        # and the batch has 0 pixels for that same class
+        with np.errstate(divide='ignore', invalid='ignore'):
+            iou = true_positive / (true_positive + false_positive + false_negative)
+        iou[np.isnan(iou)] = 1
+
+        return np.mean(iou).astype(np.float32)
+
 
 
