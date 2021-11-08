@@ -1,0 +1,8 @@
+UNet
+Attention UNet
+UNet ++
+ResUNet++
+ColonSegNet
+Deeplab exception
+HRNET
+PraNet
