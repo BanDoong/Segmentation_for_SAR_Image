@@ -108,8 +108,7 @@ class Train:
 
             net.eval()
 
-            with torch.no_grad:
-
+            with torch.no_grad():
                 for batch_idx, data in enumerate(tqdm(loader_val)):
                     img = data['img'].to(device)
                     label = data['label'].to(device)
@@ -121,12 +120,14 @@ class Train:
 
             val_loss = np.mean(loss_arr_val)
 
-            output_list = [epoch, train_loss, val_loss, dsc, mIOU, recall, precision]
+            output_list = [epoch, train_loss, val_loss]
+
+            # output_list = [epoch, train_loss, val_loss, dsc, mIOU, recall, precision]
 
             print(output_list)
 
-            save_path = f'{dir_out}/net-{str(net)}.pth'
-            torch.save(net.state_dict(), save_path)
+        save_path = f'{dir_out}/net-{str(net)}.pth'
+        torch.save(net.state_dict(), save_path)
 
             # writer_train.close()
             # writer_val.close()

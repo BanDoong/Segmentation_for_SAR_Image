@@ -2,8 +2,6 @@ import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
-import cv2
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -14,13 +12,19 @@ class Dataset(torch.utils.data.Dataset):
 
         self.train_img_path = os.path.join(dir_data, 'training/train_water_data')
         self.train_img_list = os.listdir(self.train_img_path)
+        self.train_img_list.sort()
+
         self.train_label_path = os.path.join(dir_data, 'training/train_water_labeling')
         self.train_label_list = os.listdir(self.train_label_path)
+        self.train_label_list.sort()
 
         self.validation_img_path = os.path.join(dir_data, 'validation/validate_water_data')
         self.validation_img_list = os.listdir(self.validation_img_path)
+        self.validation_img_list.sort()
+
         self.validation_label_path = os.path.join(dir_data, 'validation/validate_water_labeling')
         self.validation_label_list = os.listdir(self.validation_label_path)
+        self.validation_label_list.sort()
 
     def __getitem__(self, index):
         # Read image & sort
@@ -37,9 +41,7 @@ class Dataset(torch.utils.data.Dataset):
             img = plt.imread(os.path.join(self.validation_img_path, self.validation_img_list[index]))
             img = np.repeat(img[np.newaxis, :, :], 3, 0)
             img = img.astype(np.float32)
-
-            label = Image.open(os.path.join(self.validation_label_path, self.validation_label_list[index]),
-                               cv2.IMREAD_GRAYSCALE)
+            label = plt.imread(os.path.join(self.validation_label_path, self.validation_label_list[index]))
             label = np.repeat(label[np.newaxis, :, :], 3, 0)
             label = label.astype(np.float32)
 
@@ -68,6 +70,7 @@ class Normalization(object):
         img, label = data['img'], data['label']
 
         img = (img - np.min(img)) / (np.max(img) - np.min(img))
+        label = (label - np.min(label)) / (np.max(label) - np.min(label))
 
         data = {'img': img, 'label': label}
 
