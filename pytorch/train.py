@@ -80,7 +80,7 @@ class Train:
 
         st_epoch = 0
 
-        transform = transforms.Compose([Normalization(normal=True)])
+        transform = transforms.Compose([Normalization(normal=True), ToTensor()])
         dataset_train = Dataset(dir_data=dir_data, transform=transform, dataset='training')
         dataset_val = Dataset(dir_data=dir_data, transform=transform, dataset='validation')
         loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=num_worker,
@@ -129,5 +129,5 @@ class Train:
         save_path = f'{dir_out}/net-{str(net)}.pth'
         torch.save(net.state_dict(), save_path)
 
-            # writer_train.close()
-            # writer_val.close()
+        # writer_train.close()
+        # writer_val.close()

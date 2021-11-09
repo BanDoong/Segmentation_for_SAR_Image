@@ -34,7 +34,7 @@ class Dataset(torch.utils.data.Dataset):
             img = img.astype(np.float32)
 
             label = plt.imread(os.path.join(self.train_label_path, self.train_label_list[index]))
-            label = np.repeat(label[np.newaxis, :, :], 3, 0)
+            label = np.expand_dims(label, axis=0)
             label = label.astype(np.float32)
 
         elif self.dataset == 'validation':
@@ -42,7 +42,7 @@ class Dataset(torch.utils.data.Dataset):
             img = np.repeat(img[np.newaxis, :, :], 3, 0)
             img = img.astype(np.float32)
             label = plt.imread(os.path.join(self.validation_label_path, self.validation_label_list[index]))
-            label = np.repeat(label[np.newaxis, :, :], 3, 0)
+            label = np.expand_dims(label, axis=0)
             label = label.astype(np.float32)
 
         sample = {'img': img, 'label': label}
@@ -70,7 +70,7 @@ class Normalization(object):
         img, label = data['img'], data['label']
 
         img = (img - np.min(img)) / (np.max(img) - np.min(img))
-        label = (label - np.min(label)) / (np.max(label) - np.min(label))
+        label = label / 255.0
 
         data = {'img': img, 'label': label}
 
@@ -78,14 +78,12 @@ class Normalization(object):
 
 
 class ToTensor(object):
-    """Convert ndarrays in sample to Tensors."""
-
     def __call__(self, data):
-        img, label = data['img'], data['label']
+        label, img = data['label'], data['img']
+        # numpy (x,y,channel) | pytorch (channel,x,y)
+        label = label.transpose((0, 1, 2)).astype(np.float32)
+        img = img.transpose((0, 1, 2)).astype(np.float32)
 
-        img = img.transpose((3, 0, 1, 2)).astype(np.float32)
-        label = label.transpose((3, 0, 1, 2)).astype(np.float32)
-
-        data = {'img': img, 'label': label}
+        data = {'img': torch.from_numpy(img), 'label': torch.from_numpy(label), }
 
         return data
