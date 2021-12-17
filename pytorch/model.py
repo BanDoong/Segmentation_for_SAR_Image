@@ -10,7 +10,7 @@ class unet(nn.Module):
     Paper : https://arxiv.org/abs/1505.04597
     """
 
-    def __init__(self, in_ch=3, out_ch=1):
+    def __init__(self, in_ch=1, out_ch=1):
         super(unet, self).__init__()
 
         n1 = 64
@@ -565,79 +565,24 @@ class colonSegNet(nn.Module):
         return output
 
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
-from aspp import build_aspp
-from decoder import build_decoder
-from backbone import build_backbone
+from torchvision.models.segmentation.deeplabv3 import DeepLabHead
+from torchvision import models
 
 
-class DeepLab(nn.Module):
-    def __init__(self, backbone='resnet', output_stride=16, num_classes=21,
-                 sync_bn=True, freeze_bn=False):
-        super(DeepLab, self).__init__()
-        if backbone == 'drn':
-            output_stride = 8
-
-        if sync_bn == True:
-            BatchNorm = SynchronizedBatchNorm2d
-        else:
-            BatchNorm = nn.BatchNorm2d
-
-        self.backbone = build_backbone(backbone, output_stride, BatchNorm)
-        self.aspp = build_aspp(backbone, output_stride, BatchNorm)
-        self.decoder = build_decoder(num_classes, backbone, BatchNorm)
-
-        self.freeze_bn = freeze_bn
-
-    def forward(self, input):
-        x, low_level_feat = self.backbone(input)
-        x = self.aspp(x)
-        x = self.decoder(x, low_level_feat)
-        x = F.interpolate(x, size=input.size()[2:], mode='bilinear', align_corners=True)
-
-        return x
-
-    def freeze_bn(self):
-        for m in self.modules():
-            if isinstance(m, SynchronizedBatchNorm2d):
-                m.eval()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.eval()
-
-    def get_1x_lr_params(self):
-        modules = [self.backbone]
-        for i in range(len(modules)):
-            for m in modules[i].named_modules():
-                if self.freeze_bn:
-                    if isinstance(m[1], nn.Conv2d):
-                        for p in m[1].parameters():
-                            if p.requires_grad:
-                                yield p
-                else:
-                    if isinstance(m[1], nn.Conv2d) or isinstance(m[1], SynchronizedBatchNorm2d) \
-                            or isinstance(m[1], nn.BatchNorm2d):
-                        for p in m[1].parameters():
-                            if p.requires_grad:
-                                yield p
-
-    def get_10x_lr_params(self):
-        modules = [self.aspp, self.decoder]
-        for i in range(len(modules)):
-            for m in modules[i].named_modules():
-                if self.freeze_bn:
-                    if isinstance(m[1], nn.Conv2d):
-                        for p in m[1].parameters():
-                            if p.requires_grad:
-                                yield p
-                else:
-                    if isinstance(m[1], nn.Conv2d) or isinstance(m[1], SynchronizedBatchNorm2d) \
-                            or isinstance(m[1], nn.BatchNorm2d):
-                        for p in m[1].parameters():
-                            if p.requires_grad:
-                                yield p
+def createDeepLabv3(outputchannels=1):
+    """DeepLabv3 class with custom head
+    Args:
+        outputchannels (int, optional): The number of output channels
+        in your dataset masks. Defaults to 1.
+    Returns:
+        model: Returns the DeepLabv3 model with the ResNet101 backbone.
+    """
+    model = models.segmentation.deeplabv3_resnet101(pretrained=True,
+                                                    progress=True)
+    model.classifier = DeepLabHead(2048, outputchannels)
+    # Set the model in training mode
+    model.train()
+    return model
 
 
 import os
@@ -646,6 +591,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 # from torchvision.models.utils import load_state_dict_from_url
 from torch.utils.model_zoo import load_url as load_state_dict_from_url
+
 logger = logging.getLogger('hrnet_backbone')
 
 __all__ = ['hrnet18', 'hrnet32', 'hrnet48']
@@ -922,16 +868,51 @@ blocks_dict = {
 
 class HRNet(nn.Module):
 
-    def __init__(self,
-                 cfg,
-                 norm_layer=None):
+    def __init__(self, norm_layer=None):
         super(HRNet, self).__init__()
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self.norm_layer = norm_layer
-        # stem network
-        # stem net
+
+        from yacs.config import CfgNode as CN
+        import numpy as np
+
+        # configs for HRNet48
+        cfg = CN()
+        cfg.FINAL_CONV_KERNEL = 1
+
+        cfg.STAGE1 = CN()
+        cfg.STAGE1.NUM_MODULES = 1
+        cfg.STAGE1.NUM_BRANCHES = 1
+        cfg.STAGE1.NUM_BLOCKS = [4]
+        cfg.STAGE1.NUM_CHANNELS = [64]
+        cfg.STAGE1.BLOCK = 'BOTTLENECK'
+        cfg.STAGE1.FUSE_METHOD = 'SUM'
+
+        cfg.STAGE2 = CN()
+        cfg.STAGE2.NUM_MODULES = 1
+        cfg.STAGE2.NUM_BRANCHES = 2
+        cfg.STAGE2.NUM_BLOCKS = [4, 4]
+        cfg.STAGE2.NUM_CHANNELS = [48, 96]
+        cfg.STAGE2.BLOCK = 'BASIC'
+        cfg.STAGE2.FUSE_METHOD = 'SUM'
+
+        cfg.STAGE3 = CN()
+        cfg.STAGE3.NUM_MODULES = 4
+        cfg.STAGE3.NUM_BRANCHES = 3
+        cfg.STAGE3.NUM_BLOCKS = [4, 4, 4]
+        cfg.STAGE3.NUM_CHANNELS = [48, 96, 192]
+        cfg.STAGE3.BLOCK = 'BASIC'
+        cfg.STAGE3.FUSE_METHOD = 'SUM'
+
+        cfg.STAGE4 = CN()
+        cfg.STAGE4.NUM_MODULES = 3
+        cfg.STAGE4.NUM_BRANCHES = 4
+        cfg.STAGE4.NUM_BLOCKS = [4, 4, 4, 4]
+        cfg.STAGE4.NUM_CHANNELS = [48, 96, 192, 384]
+        cfg.STAGE4.BLOCK = 'BASIC'
+        cfg.STAGE4.FUSE_METHOD = 'SUM'
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1,
                                bias=False)
         self.bn1 = self.norm_layer(64)
@@ -994,7 +975,7 @@ class HRNet(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(
                 in_channels=last_inp_channels,
-                out_channels=19,
+                out_channels=1,
                 kernel_size=1,
                 stride=1,
                 padding=0)
@@ -1123,7 +1104,9 @@ class HRNet(nn.Module):
         x = self.stage4(x_list)
 
         # Upsampling
+        ALIGN_CORNERS = False
         x0_h, x0_w = x[0].size(2), x[0].size(3)
+
         x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=ALIGN_CORNERS)
         x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=ALIGN_CORNERS)
         x3 = F.interpolate(x[3], size=(x0_h, x0_w), mode='bilinear', align_corners=ALIGN_CORNERS)
